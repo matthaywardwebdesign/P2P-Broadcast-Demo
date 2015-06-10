@@ -4,6 +4,8 @@ The code is terrible so don't use it anywhere, but it does work.
 
 **How to use**
 
+[Demo here](http://matthaywardwebdesign.github.io/P2P-Broadcast-Demo)
+
 Simply load the `index.html` file in your browser (Only tested in Chrome, but should work in Firefox) and start broadcasting.
 Note: You have to wait 15 seconds for the stream ID to load after you start broadcasting so be patient :)
 
