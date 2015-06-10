@@ -1,0 +1,332 @@
+<script src='MediaStreamRecorder.js'></script>
+<script src='webtorrent.min.js'></script>
+<script src='Tracker.js'></script>
+<video id='v'></video>
+<br><br>
+<h3>Stream ID: <span id='streamID'></span></h3>
+<h3>Current number of viewers: <span id='viewerCount'>0</span></h3>
+<h3>Stream Name: <span id='streamName'></span></h3>
+<span>Currently seeding <span id='fileCount'>0</span> parts - Latest: <span id='lastPart'></span></span>
+<script>
+    var streamName = prompt("Enter a name for this stream");
+    document.getElementById("streamName").innerHTML = streamName;
+    console.log(streamName);
+    var client = new WebTorrent();
+    var mediaRecorder;
+window.addEventListener('DOMContentLoaded', function() {
+   var v = document.getElementById('v');
+   navigator.getUserMedia = (navigator.getUserMedia || 
+                             navigator.webkitGetUserMedia || 
+                             navigator.mozGetUserMedia || 
+                             navigator.msGetUserMedia);
+   if (navigator.getUserMedia) {
+      // Request access to video only
+      navigator.getUserMedia(
+         {
+            video:true,
+            audio:false
+         },        
+         function(stream) {
+             mediaRecorder = new MediaStreamRecorder(stream);
+                mediaRecorder.mimeType = 'video/webm'; // this line is mandatory
+                var index = 0;
+                mediaRecorder.ondataavailable = function(blob) {
+                    index++;
+                    
+                   
+                    if (index >= 4){
+                       //Loop through the torrents and find the first one that is a video
+                        for (var i = 0; i < client.torrents.length; i++){
+                             if (client.torrents[i].name == "video.webm"){
+                                 index--;
+                                  client.remove(client.torrents[i]);
+                                 break;
+                             }
+                        }
+                    }
+                    document.getElementById("fileCount").innerHTML = index;
+                    
+                    var url = URL.createObjectURL(blob);
+                     var xhr = new XMLHttpRequest();
+                        xhr.open('GET', url, true);
+                        xhr.responseType = 'blob';
+                        xhr.onreadystatechange = function (e) {
+                            if (xhr.readyState == 4) {
+                                var myBlob = this.response;
+                                client.seed(myBlob, {name: "video.webm", announce: 'wss://tracker.webtorrent.io'}, function ontorrent (torrent){
+                                   console.log(torrent.infoHash); 
+                                    document.getElementById("lastPart").innerHTML = torrent.infoHash;
+                                    currentPiece = torrent.infoHash;
+                                    for (var p = 0; p < peers.length; p++){
+                                          peers[p].send({type:"piece", piece: currentPiece});   
+                                    }
+                                    if (index == 1){
+                                         onFirstPart(torrent.infoHash);   
+                                    }
+                                });
+                            }
+                        };
+                        xhr.send();
+                };
+                
+                var timeInterval = 15000;
+
+                // get blob after specific time interval
+                mediaRecorder.start(timeInterval);
+            var url = window.URL || window.webkitURL;
+            v.src = url ? url.createObjectURL(stream) : stream;
+            v.play();
+             
+        
+         },
+         function(error) {
+            alert('Something went wrong. (error code ' + error.code + ')');
+            return;
+         }
+      );
+   }
+   else {
+      alert('Sorry, the browser you are using doesn\'t support getUserMedia');
+      return;
+   }
+});
+    
+    function makeid()
+{
+    var text = "";
+    var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+    for( var i=0; i < 10; i++ )
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
+
+    return text;
+}
+    
+    //Create file ID
+    var vidID = makeid();
+    var tracker;
+    var currentPiece;
+    var peers = [];
+    function onFirstPart(partID){
+        var metadata = vidID + ":" + streamName + ":PUBLIC_KEY_GOES_HERE_IN_THE_FUTURE_WHEN_I_IMPLEMENT_THAT";
+        client.seed(StringtoBlob(metadata), {name: "video.metadata", announce: 'wss://tracker.webtorrent.io'}, function ontorrent (torrent){
+            console.log("Stream info hash: " + torrent.infoHash);
+            document.getElementById("streamID").innerHTML = torrent.infoHash;
+             //Create a new tracker
+    tracker = new Tracker(sha1(makeid()), 0, {
+          announce: 'wss://tracker.webtorrent.io',
+          infoHash: sha1(metadata)
+    });
+            tracker.start();
+            
+                tracker.on('peer', function (peer) {
+  peers.push(peer)
+    console.log("Got peer");
+                    updatePeerCount();
+  if (peer.connected) onConnect()
+  else peer.once('connect', onConnect)
+
+  function onConnect () {
+      
+    peer.on('data', onMessage)
+    peer.on('close', onClose)
+    peer.on('error', onClose)
+    peer.on('end', onClose)
+    
+    //Send the peer the current piece
+    peer.send({type:"piece", piece: currentPiece});
+    function onClose () {
+     
+      peer.removeListener('data', onMessage)
+      peer.removeListener('close', onClose)
+      peer.removeListener('error', onClose)
+      peer.removeListener('end', onClose)
+      peers.splice(peers.indexOf(peer), 1)
+      updatePeerCount();
+    }
+
+    function onMessage (data) {
+      
+    }
+  }
+});
+            
+        });
+    }
+    
+    function updatePeerCount(){
+        document.getElementById("viewerCount").innerHTML = peers.length;
+    }
+
+    
+    function StringtoBlob(data, contentType, sliceSize) {
+    contentType = contentType || '';
+    sliceSize = sliceSize || 512;
+
+    var byteCharacters = data;
+    var byteArrays = [];
+
+    for (var offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+        var slice = byteCharacters.slice(offset, offset + sliceSize);
+
+        var byteNumbers = new Array(slice.length);
+        for (var i = 0; i < slice.length; i++) {
+            byteNumbers[i] = slice.charCodeAt(i);
+        }
+
+        var byteArray = new Uint8Array(byteNumbers);
+
+        byteArrays.push(byteArray);
+    }
+
+    var blob = new Blob(byteArrays, {type: contentType});
+    return blob;
+}
+    
+    function sha1(str) {
+  //  discuss at: http://phpjs.org/functions/sha1/
+  // original by: Webtoolkit.info (http://www.webtoolkit.info/)
+  // improved by: Michael White (http://getsprink.com)
+  // improved by: Kevin van Zonneveld (http://kevin.vanzonneveld.net)
+  //    input by: Brett Zamir (http://brett-zamir.me)
+  //  depends on: utf8_encode
+  //   example 1: sha1('Kevin van Zonneveld');
+  //   returns 1: '54916d2e62f65b3afa6e192e6a601cdbe5cb5897'
+
+  var rotate_left = function(n, s) {
+    var t4 = (n << s) | (n >>> (32 - s));
+    return t4;
+  };
+
+  /*var lsb_hex = function (val) { // Not in use; needed?
+    var str="";
+    var i;
+    var vh;
+    var vl;
+
+    for ( i=0; i<=6; i+=2 ) {
+      vh = (val>>>(i*4+4))&0x0f;
+      vl = (val>>>(i*4))&0x0f;
+      str += vh.toString(16) + vl.toString(16);
+    }
+    return str;
+  };*/
+
+  var cvt_hex = function(val) {
+    var str = '';
+    var i;
+    var v;
+
+    for (i = 7; i >= 0; i--) {
+      v = (val >>> (i * 4)) & 0x0f;
+      str += v.toString(16);
+    }
+    return str;
+  };
+
+  var blockstart;
+  var i, j;
+  var W = new Array(80);
+  var H0 = 0x67452301;
+  var H1 = 0xEFCDAB89;
+  var H2 = 0x98BADCFE;
+  var H3 = 0x10325476;
+  var H4 = 0xC3D2E1F0;
+  var A, B, C, D, E;
+  var temp;
+  var str_len = str.length;
+
+  var word_array = [];
+  for (i = 0; i < str_len - 3; i += 4) {
+    j = str.charCodeAt(i) << 24 | str.charCodeAt(i + 1) << 16 | str.charCodeAt(i + 2) << 8 | str.charCodeAt(i + 3);
+    word_array.push(j);
+  }
+
+  switch (str_len % 4) {
+    case 0:
+      i = 0x080000000;
+      break;
+    case 1:
+      i = str.charCodeAt(str_len - 1) << 24 | 0x0800000;
+      break;
+    case 2:
+      i = str.charCodeAt(str_len - 2) << 24 | str.charCodeAt(str_len - 1) << 16 | 0x08000;
+      break;
+    case 3:
+      i = str.charCodeAt(str_len - 3) << 24 | str.charCodeAt(str_len - 2) << 16 | str.charCodeAt(str_len - 1) <<
+        8 | 0x80;
+      break;
+  }
+
+  word_array.push(i);
+
+  while ((word_array.length % 16) != 14) {
+    word_array.push(0);
+  }
+
+  word_array.push(str_len >>> 29);
+  word_array.push((str_len << 3) & 0x0ffffffff);
+
+  for (blockstart = 0; blockstart < word_array.length; blockstart += 16) {
+    for (i = 0; i < 16; i++) {
+      W[i] = word_array[blockstart + i];
+    }
+    for (i = 16; i <= 79; i++) {
+      W[i] = rotate_left(W[i - 3] ^ W[i - 8] ^ W[i - 14] ^ W[i - 16], 1);
+    }
+
+    A = H0;
+    B = H1;
+    C = H2;
+    D = H3;
+    E = H4;
+
+    for (i = 0; i <= 19; i++) {
+      temp = (rotate_left(A, 5) + ((B & C) | (~B & D)) + E + W[i] + 0x5A827999) & 0x0ffffffff;
+      E = D;
+      D = C;
+      C = rotate_left(B, 30);
+      B = A;
+      A = temp;
+    }
+
+    for (i = 20; i <= 39; i++) {
+      temp = (rotate_left(A, 5) + (B ^ C ^ D) + E + W[i] + 0x6ED9EBA1) & 0x0ffffffff;
+      E = D;
+      D = C;
+      C = rotate_left(B, 30);
+      B = A;
+      A = temp;
+    }
+
+    for (i = 40; i <= 59; i++) {
+      temp = (rotate_left(A, 5) + ((B & C) | (B & D) | (C & D)) + E + W[i] + 0x8F1BBCDC) & 0x0ffffffff;
+      E = D;
+      D = C;
+      C = rotate_left(B, 30);
+      B = A;
+      A = temp;
+    }
+
+    for (i = 60; i <= 79; i++) {
+      temp = (rotate_left(A, 5) + (B ^ C ^ D) + E + W[i] + 0xCA62C1D6) & 0x0ffffffff;
+      E = D;
+      D = C;
+      C = rotate_left(B, 30);
+      B = A;
+      A = temp;
+    }
+
+    H0 = (H0 + A) & 0x0ffffffff;
+    H1 = (H1 + B) & 0x0ffffffff;
+    H2 = (H2 + C) & 0x0ffffffff;
+    H3 = (H3 + D) & 0x0ffffffff;
+    H4 = (H4 + E) & 0x0ffffffff;
+  }
+
+  temp = cvt_hex(H0) + cvt_hex(H1) + cvt_hex(H2) + cvt_hex(H3) + cvt_hex(H4);
+  return temp.toLowerCase();
+}
+    
+ 
+</script>
